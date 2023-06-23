@@ -1,0 +1,57 @@
+const keccak256 = require('keccak256');
+
+class MPTNode {
+  constructor(type, value) {
+    this.type = type;
+    this.value = value;
+    this.children = {};
+  }
+
+  hash() {
+    const buffer = Buffer.alloc(1);
+    buffer.writeUInt8(this.type, 0);
+    if (this.type === 0) {
+      return buffer;
+    } else if (this.type === 1) {
+      return Buffer.concat([buffer, this.value]);
+    } else {
+      const keys = Object.keys(this.children).sort();
+      const hashes = keys.map(key => this.children[key].hash());
+      return Buffer.concat([buffer, ...hashes]);
+    }
+  }
+}
+
+class MPT {
+  constructor() {
+    this.root = new MPTNode(0, null);
+  }
+
+  put(address, balance, data) {
+    let node = this.root;
+    const hash = keccak256(address);
+    for (let i = 0; i < hash.length; i++) {
+      const nibble = hash[i] & 0xf;
+      const key = (i === hash.length - 1) ? nibble + 16 : nibble;
+      if (!node.children[key]) {
+        node.children[key] = new MPTNode(0, null);
+      }
+      node = node.children[key];
+    }
+    node.type = 1;
+    node.value = Buffer.from([...balance.toTwos(256), ...data]);
+  }
+
+  get(address) {
+    let node = this.root;
+    const hash = keccak256(address);
+    for (let i = 0; i < hash.length; i++) {
+      const nibble = hash[i] & 0xf;
+      const key = (i === hash.length - 1) ? nibble + 16 : nibble;
+      if (!node.children[key]) {
+        return null;
+      }
+      node = node.children[key];
+    }
+    if (node.type === 1) {
+      const balance = BigInt(`0x${node.value.slice(0, 32).toString('hex')}`);
